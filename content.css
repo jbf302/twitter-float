@@ -1,0 +1,39 @@
+/*
+ * Twitter Float — compact layout styles
+ *
+ * Twitter's responsive design already collapses the right sidebar and
+ * left-nav labels at narrow widths (~600px), so most of this kicks in
+ * automatically in the 390px popup window. These rules handle edge cases
+ * and add a bit of visual polish.
+ */
+
+/* ── Right sidebar ────────────────────────────────────────────────────────── */
+/* Hide if it somehow persists at narrow widths */
+[data-testid="sidebarColumn"] {
+  display: none !important;
+}
+
+/* ── Left nav ─────────────────────────────────────────────────────────────── */
+/* At ~390px the nav is already icon-only; just tighten the padding */
+nav[aria-label="Primary navigation"] a,
+nav[aria-label="Primary"] a {
+  padding: 8px !important;
+}
+
+/* ── Main column: use all available horizontal space ─────────────────────── */
+[data-testid="primaryColumn"] {
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* ── Tweet cards: reduce vertical padding slightly ───────────────────────── */
+article[data-testid="tweet"] {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+/* ── Hide "Get the app" / promotional banners ────────────────────────────── */
+[data-testid="BottomBar"],
+[data-testid="AppDownloadCTA"] {
+  display: none !important;
+}

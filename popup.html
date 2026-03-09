@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Twitter Float</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      width: 260px;
+      background: #000;
+      color: #e7e9ea;
+      padding: 16px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    /* The X/bird logo mark in pure CSS */
+    .logo {
+      width: 20px;
+      height: 20px;
+      background: #1d9bf0;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Open button ── */
+    #open-btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 9999px;
+      background: #1d9bf0;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 16px;
+      transition: background 0.15s;
+    }
+    #open-btn:hover { background: #1a8cd8; }
+    #open-btn.active { background: #057dcb; }
+
+    /* ── Shortcut hint ── */
+    .shortcut {
+      text-align: center;
+      font-size: 11px;
+      color: #71767b;
+      margin-top: -10px;
+      margin-bottom: 16px;
+    }
+
+    /* ── Divider ── */
+    hr {
+      border: none;
+      border-top: 1px solid #2f3336;
+      margin-bottom: 14px;
+    }
+
+    /* ── Toggle rows ── */
+    .setting {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .setting label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      cursor: pointer;
+    }
+
+    .setting .label-title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .setting .label-sub {
+      font-size: 11px;
+      color: #71767b;
+    }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle .track {
+      position: absolute;
+      inset: 0;
+      background: #2f3336;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle input:checked + .track {
+      background: #1d9bf0;
+    }
+
+    .toggle .track::after {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s;
+    }
+
+    .toggle input:checked + .track::after {
+      transform: translateX(18px);
+    }
+
+    /* ── Status dot ── */
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      font-size: 11px;
+      color: #71767b;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2f3336;
+    }
+    .dot.open { background: #00ba7c; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo"></div>
+    <h1>Twitter Float</h1>
+  </header>
+
+  <button id="open-btn">Open Float Window</button>
+  <p class="shortcut" id="shortcut-hint">Ctrl+Shift+T to open / focus</p>
+
+  <hr />
+
+  <div class="setting">
+    <label for="toggle-chrono">
+      <span class="label-title">Chronological feed</span>
+      <span class="label-sub">Auto-select the Following tab</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="toggle-chrono" />
+      <span class="track"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <label for="toggle-refresh">
+      <span class="label-title">Auto-load new posts</span>
+      <span class="label-sub">Click "Show new posts" automatically</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="toggle-refresh" />
+      <span class="track"></span>
+    </label>
+  </div>
+
+  <div class="status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Float window closed</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

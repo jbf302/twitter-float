@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Twitter Float",
+  "version": "1.0",
+  "description": "Keep X/Twitter in a floating window with auto-refresh and chronological feed",
+
+  "permissions": ["windows", "tabs", "storage"],
+  "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://twitter.com/*", "https://x.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Twitter Float"
+  },
+
+  "commands": {
+    "open-float-window": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+T",
+        "mac": "Command+Shift+T"
+      },
+      "description": "Open or focus the Twitter floating window"
+    }
+  }
+}
