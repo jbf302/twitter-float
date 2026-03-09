@@ -31,6 +31,11 @@ let newContentWhileAway = false;
 let autoScrollRaf = null;
 let autoScrollDir = 1; // 1 = down, -1 = up
 
+// ── Reveal-scroll state (smooth reveal of newly-loaded tweets) ────────────────
+
+let revealScrollRaf = null;
+const REVEAL_PX_PER_FRAME = 3; // ≈ 180 px/s at 60 fps
+
 // ── Link preview cache ────────────────────────────────────────────────────────
 
 const previewCache = new Map();
@@ -185,15 +190,50 @@ function clickNewPostsPillIfIdle() {
     return;
   }
 
-  // Never auto-refresh while auto-scroll is running — it would yank the feed
-  if (autoScrollRaf !== null) return;
+  // Never auto-refresh while auto-scroll or reveal-scroll is running
+  if (autoScrollRaf !== null || revealScrollRaf !== null) return;
 
   const idleMs       = Date.now() - lastScrollTime;
   const scrolledDown = window.scrollY > 200;
 
   if (scrolledDown && idleMs < SCROLL_IDLE_MS) return;
 
+  clickPillWithReveal(pill);
+}
+
+async function clickPillWithReveal(pill) {
+  const scrollHeightBefore = document.documentElement.scrollHeight;
+
   pill.click();
+
+  // Wait for Twitter to insert new tweets and perform its own scroll
+  await sleep(600);
+
+  const addedHeight = document.documentElement.scrollHeight - scrollHeightBefore;
+
+  // If no meaningful content was added, nothing to reveal
+  if (addedHeight < 100) return;
+
+  // Twitter scrolls the window to the top after loading new tweets.
+  // Jump the viewport down so the "old" first tweet is back in view,
+  // then smoothly scroll up to reveal all the new tweets.
+  window.scrollTo({ top: addedHeight, behavior: 'instant' });
+  startRevealScroll();
+}
+
+function startRevealScroll() {
+  if (revealScrollRaf !== null) cancelAnimationFrame(revealScrollRaf);
+
+  function tick() {
+    if (window.scrollY <= 0) {
+      revealScrollRaf = null;
+      return;
+    }
+    window.scrollBy(0, -REVEAL_PX_PER_FRAME);
+    lastScrollTime = Date.now(); // prevent auto-refresh from firing during reveal
+    revealScrollRaf = requestAnimationFrame(tick);
+  }
+  revealScrollRaf = requestAnimationFrame(tick);
 }
 
 function findNewPostsPill() {
@@ -214,6 +254,20 @@ function findNewPostsPill() {
 
 function setupScrollTracking() {
   document.addEventListener('scroll', () => { lastScrollTime = Date.now(); }, { passive: true });
+
+  // When the user returns to this tab/window, immediately check for new posts.
+  // Reset the idle timer first so the pill check isn't blocked by the 15 s guard.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      lastScrollTime = 0;
+      clickNewPostsPillIfIdle();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    lastScrollTime = 0;
+    clickNewPostsPillIfIdle();
+  });
 }
 
 // ── New content banner ────────────────────────────────────────────────────────
