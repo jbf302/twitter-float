@@ -2,6 +2,20 @@
 
 let floatWindowId = null;
 
+// Restore persisted window ID when the service worker starts (MV3 workers are
+// killed after ~30 s of inactivity and lose all in-memory state on restart).
+chrome.storage.local.get('floatWindowId').then(async ({ floatWindowId: savedId }) => {
+  if (!savedId) return;
+  try {
+    await chrome.windows.get(savedId); // throws if window no longer exists
+    floatWindowId = savedId;
+    // Recreate the alarm in case it was lost with the previous worker instance.
+    chrome.alarms.create('tf-refresh', { periodInMinutes: 1 });
+  } catch {
+    chrome.storage.local.remove('floatWindowId');
+  }
+});
+
 // ── Link preview cache ────────────────────────────────────────────────────────
 
 const previewCache = new Map();
@@ -32,6 +46,8 @@ async function openFloatWindow() {
   });
 
   floatWindowId = win.id;
+  chrome.storage.local.set({ floatWindowId: win.id });
+  chrome.alarms.create('tf-refresh', { periodInMinutes: 1 });
 }
 
 // Save position whenever the float window loses focus (user moved/resized it)
@@ -49,8 +65,23 @@ chrome.windows.onFocusChanged.addListener(async (focusedWindowId) => {
 chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === floatWindowId) {
     floatWindowId = null;
+    chrome.storage.local.remove('floatWindowId');
+    chrome.alarms.clear('tf-refresh');
     chrome.runtime.sendMessage({ action: 'windowClosed' }).catch(() => {});
   }
+});
+
+// ── Alarm-based background refresh ───────────────────────────────────────────
+// chrome.alarms fires reliably even when the popup window doesn't have focus,
+// unlike setInterval which Chrome throttles for unfocused windows/tabs.
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== 'tf-refresh' || floatWindowId === null) return;
+  try {
+    const win = await chrome.windows.get(floatWindowId, { populate: true });
+    const tab = win?.tabs?.[0];
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, { action: 'pollNewPosts' }).catch(() => {});
+  } catch {}
 });
 
 // ── Link preview fetcher ──────────────────────────────────────────────────────
