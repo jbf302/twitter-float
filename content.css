@@ -39,6 +39,26 @@ html.tf-compact-media [data-testid="previewInterstitial"] {
   transition: max-height 0.25s ease;
 }
 
+/* Strip any visible border/outline on collapsed media so the box-frame
+   doesn't ghost through when an image is slow to load or hidden. */
+html.tf-compact-media [data-testid="tweetPhoto"]:not(.tf-media-expanded),
+html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded),
+html.tf-compact-media [data-testid="card.layoutLarge.media"]:not(.tf-media-expanded),
+html.tf-compact-media [data-testid="previewInterstitial"]:not(.tf-media-expanded) {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Also strip borders on immediate child wrappers (aspect-ratio divs, etc.)
+   that Twitter may render with a visible border before the image loads. */
+html.tf-compact-media [data-testid="tweetPhoto"]:not(.tf-media-expanded) > *,
+html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded) > * {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 html.tf-compact-media [data-testid="tweetPhoto"].tf-media-expanded,
 html.tf-compact-media [data-testid="videoComponent"].tf-media-expanded,
 html.tf-compact-media [data-testid="card.layoutLarge.media"].tf-media-expanded,
