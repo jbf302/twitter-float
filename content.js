@@ -178,7 +178,10 @@ function clickNewPostsPillIfIdle() {
     return;
   }
 
-  const idleMs      = Date.now() - lastScrollTime;
+  // Never auto-refresh while auto-scroll is running — it would yank the feed
+  if (autoScrollRaf !== null) return;
+
+  const idleMs       = Date.now() - lastScrollTime;
   const scrolledDown = window.scrollY > 200;
 
   // Don't auto-refresh while user is actively scrolled and not idle
