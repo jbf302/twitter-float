@@ -1,11 +1,13 @@
 'use strict';
 
-const openBtn    = document.getElementById('open-btn');
-const chronoToggle  = document.getElementById('toggle-chrono');
-const refreshToggle = document.getElementById('toggle-refresh');
-const statusDot  = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
-const shortcutHint = document.getElementById('shortcut-hint');
+const openBtn          = document.getElementById('open-btn');
+const chronoToggle     = document.getElementById('toggle-chrono');
+const refreshToggle    = document.getElementById('toggle-refresh');
+const compactToggle    = document.getElementById('toggle-compact-media');
+const expandToggle     = document.getElementById('toggle-expand-threads');
+const statusDot        = document.getElementById('status-dot');
+const statusText       = document.getElementById('status-text');
+const shortcutHint     = document.getElementById('shortcut-hint');
 
 // Adjust shortcut hint for platform
 if (navigator.platform.startsWith('Mac')) {
@@ -19,9 +21,13 @@ async function init() {
   const settings = await chrome.storage.sync.get({
     chronological: true,
     autoRefresh: true,
+    compactMedia: false,
+    autoExpandThreads: true,
   });
   chronoToggle.checked  = settings.chronological;
   refreshToggle.checked = settings.autoRefresh;
+  compactToggle.checked = settings.compactMedia;
+  expandToggle.checked  = settings.autoExpandThreads;
 
   // Window status from background
   const { windowOpen } = await chrome.runtime.sendMessage({ action: 'getWindowStatus' });
@@ -48,6 +54,14 @@ chronoToggle.addEventListener('change', () => {
 
 refreshToggle.addEventListener('change', () => {
   chrome.storage.sync.set({ autoRefresh: refreshToggle.checked });
+});
+
+compactToggle.addEventListener('change', () => {
+  chrome.storage.sync.set({ compactMedia: compactToggle.checked });
+});
+
+expandToggle.addEventListener('change', () => {
+  chrome.storage.sync.set({ autoExpandThreads: expandToggle.checked });
 });
 
 // ── Window status ─────────────────────────────────────────────────────────────
