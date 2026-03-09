@@ -33,8 +33,9 @@ let autoScrollDir = 1; // 1 = down, -1 = up
 
 // ── Reveal-scroll state (smooth reveal of newly-loaded tweets) ────────────────
 
+// Non-null while a reveal is in progress (boolean sentinel or RAF id).
+// Prevents the pill from being re-clicked before the reveal finishes.
 let revealScrollRaf = null;
-const REVEAL_PX_PER_FRAME = 3; // ≈ 180 px/s at 60 fps
 
 // ── Link preview cache ────────────────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (key in settings) { settings[key] = newValue; changed = true; }
   }
   if (changed) applySettings();
+});
+
+// Background alarm pings us every minute — immune to Chrome's timer throttling
+// for unfocused windows (unlike setInterval, which Chrome can pause entirely).
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'pollNewPosts') clickNewPostsPillIfIdle();
 });
 
 // ── SPA navigation detection ──────────────────────────────────────────────────
@@ -121,10 +128,12 @@ async function applySettings() {
     stopAutoRefresh();
     if (settings.autoExpandThreads && isThreadPage()) startThreadExpander();
     else stopThreadExpander();
+    updateArticleViewUI();
     return;
   }
 
   stopThreadExpander();
+  updateArticleViewUI();
   if (settings.chronological) await switchToFollowing();
   if (settings.autoRefresh)   startAutoRefresh();
   else                        stopAutoRefresh();
@@ -139,6 +148,28 @@ function isHomeFeedUrl(url) {
 
 function isThreadPage() {
   return /\/status\/\d+/.test(location.pathname);
+}
+
+// ── Article View (Unroll Mode) ────────────────────────────────────────────────
+
+function updateArticleViewUI() {
+  if (!isThreadPage()) {
+    const btn = document.getElementById('tf-unroll-btn');
+    if (btn) btn.remove();
+    document.documentElement.classList.remove('tf-article-view');
+    return;
+  }
+
+  if (document.getElementById('tf-unroll-btn')) return;
+  
+  const btn = document.createElement('button');
+  btn.id = 'tf-unroll-btn';
+  btn.textContent = 'Unroll';
+  btn.onclick = () => {
+    document.documentElement.classList.toggle('tf-article-view');
+    btn.classList.toggle('active');
+  };
+  document.body.appendChild(btn);
 }
 
 // ── Chronological feed ────────────────────────────────────────────────────────
@@ -202,6 +233,20 @@ function clickNewPostsPillIfIdle() {
 }
 
 async function clickPillWithReveal(pill) {
+  // At the top: briefly enable smooth scroll so any scrollTo Twitter fires
+  // during the pill click is eased rather than instant.
+  if (window.scrollY < 50) {
+    document.documentElement.style.scrollBehavior = 'smooth';
+    pill.click();
+    setTimeout(() => { document.documentElement.style.scrollBehavior = ''; }, 900);
+    return;
+  }
+
+  // Scrolled-down case: preserve the user's reading position by jumping the
+  // viewport to where the old first tweet now lives, then reveal upward using
+  // the browser's native smooth scroll (hardware-accelerated, no RAF loop).
+  if (revealScrollRaf !== null) return; // already revealing
+
   const scrollHeightBefore = document.documentElement.scrollHeight;
 
   pill.click();
@@ -214,26 +259,17 @@ async function clickPillWithReveal(pill) {
   // If no meaningful content was added, nothing to reveal
   if (addedHeight < 100) return;
 
-  // Twitter scrolls the window to the top after loading new tweets.
-  // Jump the viewport down so the "old" first tweet is back in view,
-  // then smoothly scroll up to reveal all the new tweets.
+  revealScrollRaf = true; // sentinel: block re-entry
   window.scrollTo({ top: addedHeight, behavior: 'instant' });
-  startRevealScroll();
-}
 
-function startRevealScroll() {
-  if (revealScrollRaf !== null) cancelAnimationFrame(revealScrollRaf);
+  // Small pause so the instant-jump settles before we start smooth scroll
+  await sleep(50);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  function tick() {
-    if (window.scrollY <= 0) {
-      revealScrollRaf = null;
-      return;
-    }
-    window.scrollBy(0, -REVEAL_PX_PER_FRAME);
-    lastScrollTime = Date.now(); // prevent auto-refresh from firing during reveal
-    revealScrollRaf = requestAnimationFrame(tick);
-  }
-  revealScrollRaf = requestAnimationFrame(tick);
+  // Estimate reveal duration (native smooth scroll ~1px/ms is typical).
+  // Clear the sentinel once the animation should be complete.
+  const estimatedMs = Math.max(600, Math.min(addedHeight, 3000));
+  setTimeout(() => { revealScrollRaf = null; }, estimatedMs);
 }
 
 function findNewPostsPill() {
@@ -297,7 +333,7 @@ function setupCompactMediaClicks() {
     if (!settings.compactMedia) return;
     const media = e.target.closest(
       '[data-testid="tweetPhoto"], [data-testid="videoComponent"], ' +
-      '[data-testid="card.layoutLarge.media"], [data-testid="previewInterstitial"]'
+      '[data-testid="card.layoutLarge.media"], [data-testid="previewInterstitial"], .tf-quoted-tweet'
     );
     if (!media) return;
     if (media.classList.contains('tf-media-expanded')) return;
@@ -313,7 +349,13 @@ const expandedSet = new WeakSet();
 function startThreadExpander() {
   stopThreadExpander();
   expandThreadItems();
-  threadObserver = new MutationObserver(debounce(expandThreadItems, 400));
+  highlightOPReplies();
+  tagQuotedTweets();
+  threadObserver = new MutationObserver(debounce(() => {
+    expandThreadItems();
+    highlightOPReplies();
+    tagQuotedTweets();
+  }, 400));
   threadObserver.observe(document.body, { childList: true, subtree: true });
 }
 
@@ -334,15 +376,61 @@ function expandThreadItems() {
   const primary = document.querySelector('[data-testid="primaryColumn"]');
   if (!primary) return;
 
-  primary.querySelectorAll('[role="button"], button').forEach(btn => {
+  primary.querySelectorAll('[role="button"], button, a, [tabindex="0"], [role="link"]').forEach(btn => {
     if (expandedSet.has(btn)) return;
     const text = normalizeText(btn.textContent);
     if (
-      (text.includes('more repl') || text.includes('show more repl')) &&
-      !text.includes('compose')
+      text.includes('repl') && (text.includes('show') || text.includes('more')) &&
+      !text.includes('compose') && text.length < 50
     ) {
       expandedSet.add(btn);
       btn.click();
+    }
+  });
+}
+
+function highlightOPReplies() {
+  if (!isThreadPage()) return;
+  const match = location.pathname.match(/^\/([^\/]+)\/status\/\d+/);
+  if (!match) return;
+  
+  const opHandle = match[1].toLowerCase();
+  
+  document.querySelectorAll('article[data-testid="tweet"]').forEach(article => {
+    const userNameBlock = article.querySelector('[data-testid="User-Name"]');
+    if (!userNameBlock) return;
+    
+    const handleEl = Array.from(userNameBlock.querySelectorAll('span')).find(el => el.textContent.startsWith('@'));
+    if (!handleEl) return;
+    
+    const handle = handleEl.textContent.slice(1).toLowerCase();
+    const isOP = handle === opHandle;
+    
+    if (isOP) {
+      article.classList.add('tf-op-tweet');
+      if (!userNameBlock.querySelector('.tf-op-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'tf-op-badge';
+        badge.textContent = 'OP';
+        handleEl.appendChild(badge);
+      }
+    } else {
+      article.classList.remove('tf-op-tweet');
+      const badge = userNameBlock.querySelector('.tf-op-badge');
+      if (badge) badge.remove();
+    }
+  });
+}
+
+function tagQuotedTweets() {
+  if (!settings.compactMedia || !isThreadPage()) return;
+  document.querySelectorAll('article[data-testid="tweet"]').forEach(article => {
+    const links = article.querySelectorAll('div[role="link"][tabindex="0"]');
+    for (const link of links) {
+      if (link.classList.contains('tf-quoted-tweet')) continue;
+      if (link.querySelector('time') && link.textContent.includes('@')) {
+        link.classList.add('tf-quoted-tweet');
+      }
     }
   });
 }

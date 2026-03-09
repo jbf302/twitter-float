@@ -27,49 +27,59 @@ article[data-testid="tweet"]:has([data-testid="promotedIndicator"]) { display: n
 [data-testid="inline_follow_suggestions"] { display: none !important; }
 
 /* ── Compact media mode ───────────────────────────────────────────────────── */
-html.tf-compact-media [data-testid="tweetPhoto"],
-html.tf-compact-media [data-testid="videoComponent"],
-html.tf-compact-media [data-testid="card.layoutLarge.media"],
-html.tf-compact-media [data-testid="previewInterstitial"] {
-  max-height: 80px;
-  overflow: hidden;
-  cursor: zoom-in;
-  border-radius: 8px;
-  position: relative;
-  transition: max-height 0.25s ease;
-}
 
-/* Strip any visible border/outline on collapsed media so the box-frame
-   doesn't ghost through when an image is slow to load or hidden. */
+/* Collapsed state: force BOTH height and max-height so that Twitter's inner
+   aspect-ratio div (which uses padding-bottom: X% relative to parent width)
+   cannot push the tweet card layout beyond 80px. overflow:hidden clips
+   the visible content; height:80px !important collapses the layout space. */
 html.tf-compact-media [data-testid="tweetPhoto"]:not(.tf-media-expanded),
 html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded),
 html.tf-compact-media [data-testid="card.layoutLarge.media"]:not(.tf-media-expanded),
-html.tf-compact-media [data-testid="previewInterstitial"]:not(.tf-media-expanded) {
+html.tf-compact-media [data-testid="previewInterstitial"]:not(.tf-media-expanded),
+html.tf-compact-media .tf-quoted-tweet:not(.tf-media-expanded) {
+  height: 80px !important;
+  max-height: 80px !important;
+  overflow: hidden !important;
+  cursor: zoom-in;
+  border-radius: 8px;
+  position: relative;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
 }
 
-/* Also strip borders on immediate child wrappers (aspect-ratio divs, etc.)
-   that Twitter may render with a visible border before the image loads. */
+/* Also constrain immediate child wrappers (the padding-bottom aspect-ratio
+   div, or any position:relative wrapper Twitter adds) so they don't reserve
+   space beyond the 80px boundary. */
 html.tf-compact-media [data-testid="tweetPhoto"]:not(.tf-media-expanded) > *,
-html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded) > * {
+html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded) > *,
+html.tf-compact-media [data-testid="card.layoutLarge.media"]:not(.tf-media-expanded) > *,
+html.tf-compact-media [data-testid="previewInterstitial"]:not(.tf-media-expanded) > *,
+html.tf-compact-media .tf-quoted-tweet:not(.tf-media-expanded) > * {
+  max-height: 80px !important;
+  overflow: hidden !important;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
 }
 
+/* Expanded state */
 html.tf-compact-media [data-testid="tweetPhoto"].tf-media-expanded,
 html.tf-compact-media [data-testid="videoComponent"].tf-media-expanded,
 html.tf-compact-media [data-testid="card.layoutLarge.media"].tf-media-expanded,
-html.tf-compact-media [data-testid="previewInterstitial"].tf-media-expanded {
-  max-height: 600px;
+html.tf-compact-media [data-testid="previewInterstitial"].tf-media-expanded,
+html.tf-compact-media .tf-quoted-tweet.tf-media-expanded {
+  height: auto !important;
+  max-height: 600px !important;
+  overflow: hidden !important;
   cursor: default;
+  transition: max-height 0.25s ease;
 }
 
 /* Overlay hint so user knows media is collapsed */
 html.tf-compact-media [data-testid="tweetPhoto"]:not(.tf-media-expanded)::after,
-html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded)::after {
+html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded)::after,
+html.tf-compact-media .tf-quoted-tweet:not(.tf-media-expanded)::after {
   content: "tap to expand";
   position: absolute;
   bottom: 4px;
@@ -191,4 +201,59 @@ html.tf-compact-media [data-testid="videoComponent"]:not(.tf-media-expanded)::af
   font-size: 11px;
   color: #555e67;
   text-transform: lowercase;
+}
+
+/* ── Article View (Unroll Mode) ───────────────────────────────────────────── */
+#tf-unroll-btn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  background: rgba(0,0,0,.82);
+  border: 1px solid #2f3336;
+  border-radius: 9999px;
+  padding: 4px 12px;
+  color: #e7e9ea;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 99999;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s;
+}
+#tf-unroll-btn:hover { border-color: #1d9bf0; color: #1d9bf0; }
+#tf-unroll-btn.active { background: #1d9bf0; border-color: #1d9bf0; color: #fff; }
+
+html.tf-article-view article[data-testid="tweet"] {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+html.tf-article-view [data-testid="Tweet-User-Avatar"] {
+  display: none !important;
+}
+html.tf-article-view [data-testid="tweet"] [role="group"] {
+  display: none !important;
+}
+html.tf-article-view a[href$="/analytics"] {
+  display: none !important;
+}
+/* Hide the vertical connecting thread lines */
+html.tf-article-view [data-testid="tweet"] div[style*="width: 2px"] {
+  display: none !important;
+}
+html.tf-article-view [data-testid="tweetText"] {
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+}
+
+/* ── OP Highlighting ──────────────────────────────────────────────────────── */
+.tf-op-badge {
+  background: #1d9bf0;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: text-top;
 }
