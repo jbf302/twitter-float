@@ -37,6 +37,13 @@ let autoScrollDir = 1; // 1 = down, -1 = up
 // Prevents the pill from being re-clicked before the reveal finishes.
 let revealScrollRaf = null;
 
+// ── Countdown state ───────────────────────────────────────────────────────────
+
+let countdownTimer = null;
+let countdownSuppressed = false;
+let countdownEndTime = 0;
+let countdownPill = null;
+
 // ── Link preview cache ────────────────────────────────────────────────────────
 
 const previewCache = new Map();
@@ -45,14 +52,21 @@ const previewCache = new Map();
 
 (async function init() {
   await loadSettings();
+  const { restoreScrollTarget } = await chrome.storage.local.get('restoreScrollTarget');
+  if (restoreScrollTarget) revealScrollRaf = true;
   setupScrollTracking();
   watchNavigation();
   injectAutoScrollerUI();
+  injectHomeButton();
   injectLinkPreviewTooltip();
   setupLinkPreviews();
   setupCompactMediaClicks();
   startAdRemover();
   await applySettings();
+  if (restoreScrollTarget) {
+    chrome.storage.local.remove('restoreScrollTarget');
+    await restoreScrollAndReveal(restoreScrollTarget);
+  }
 })();
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -71,11 +85,34 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changed) applySettings();
 });
 
-// Background alarm pings us every minute — immune to Chrome's timer throttling
-// for unfocused windows (unlike setInterval, which Chrome can pause entirely).
+// Background alarm pings every 30 s.  When the window is not focused Chrome
+// throttles setInterval / MutationObserver, so the alarm is our only reliable
+// heartbeat.  Bypass the countdown/idle gate and refresh immediately if a pill
+// is present — the user isn't watching anyway so there's no need to wait.
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === 'pollNewPosts') clickNewPostsPillIfIdle();
+  if (message.action === 'pollNewPosts') pollNewPostsFromAlarm();
 });
+
+function pollNewPostsFromAlarm() {
+  if (!isHomeFeed()) return;
+  if (autoScrollRaf !== null || revealScrollRaf !== null) return;
+  const pill = findNewPostsPill();
+  if (!pill) return;
+
+  // Respect the idle guard when the user is scrolled down and reading — don't
+  // interrupt them just because the alarm fired. The alarm's skip-idle intent
+  // is only appropriate for the backgrounded/throttled case; when the window
+  // is focused the MutationObserver path already handles pill detection.
+  const idleMs = Date.now() - lastScrollTime;
+  const scrolledDown = window.scrollY > 200;
+  if (scrolledDown && idleMs < SCROLL_IDLE_MS) {
+    if (!countdownSuppressed) startCountdown(SCROLL_IDLE_MS - idleMs, pill);
+    return;
+  }
+
+  resetCountdown();
+  clickPillWithReveal(pill);
+}
 
 // ── SPA navigation detection ──────────────────────────────────────────────────
 
@@ -122,6 +159,7 @@ async function applySettings() {
   applyPending = false;
 
   injectAutoScrollerUI();
+  injectHomeButton();
   applyCompactMedia();
 
   if (!isHomeFeed()) {
@@ -214,22 +252,117 @@ function stopAutoRefresh() {
 
 function clickNewPostsPillIfIdle() {
   const pill = findNewPostsPill();
-  if (!pill) return;
+  if (!pill) { resetCountdown(); return; }
 
   if (!isHomeFeed()) {
     newContentWhileAway = true;
     return;
   }
 
-  // Never auto-refresh while auto-scroll or reveal-scroll is running
   if (autoScrollRaf !== null || revealScrollRaf !== null) return;
 
   const idleMs       = Date.now() - lastScrollTime;
   const scrolledDown = window.scrollY > 200;
 
-  if (scrolledDown && idleMs < SCROLL_IDLE_MS) return;
+  if (scrolledDown && idleMs < SCROLL_IDLE_MS) {
+    if (!countdownSuppressed) startCountdown(SCROLL_IDLE_MS - idleMs, pill);
+    return;
+  }
 
+  resetCountdown();
   clickPillWithReveal(pill);
+}
+
+// ── Refresh countdown ─────────────────────────────────────────────────────────
+
+const CD_RING_CIRCUMFERENCE = 2 * Math.PI * 8; // r=8 on the SVG circle
+
+function startCountdown(remainingMs, pill) {
+  if (countdownTimer !== null) {
+    countdownPill = pill;
+    return;
+  }
+
+  countdownPill = pill;
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  countdownEndTime = Date.now() + totalSeconds * 1000;
+
+  let el = document.getElementById('tf-refresh-countdown');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tf-refresh-countdown';
+    el.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 20 20">
+        <circle class="tf-cd-track" cx="10" cy="10" r="8" />
+        <circle class="tf-cd-ring" cx="10" cy="10" r="8"
+          stroke-dasharray="${CD_RING_CIRCUMFERENCE}"
+          stroke-dashoffset="0"
+          transform="rotate(-90 10 10)" />
+      </svg>
+      <span class="tf-cd-text"></span>
+      <button class="tf-cd-close" title="Cancel">&times;</button>
+    `;
+
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.tf-cd-close')) return;
+      const p = countdownPill || findNewPostsPill();
+      resetCountdown();
+      if (p) clickPillWithReveal(p);
+    });
+
+    el.querySelector('.tf-cd-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      countdownSuppressed = true;
+      resetCountdown();
+    });
+
+    document.body.appendChild(el);
+  }
+
+  el.classList.remove('tf-hiding');
+  el.style.display = 'flex';
+  el.offsetHeight; // force reflow for entrance animation
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = '';
+
+  tickCountdown(el, totalSeconds);
+  countdownTimer = setInterval(() => tickCountdown(el, totalSeconds), 1000);
+}
+
+function tickCountdown(el, totalSeconds) {
+  const remaining = Math.max(0, Math.ceil((countdownEndTime - Date.now()) / 1000));
+  const text = el.querySelector('.tf-cd-text');
+  const ring = el.querySelector('.tf-cd-ring');
+
+  if (text) text.textContent = `Refreshing in ${remaining}s`;
+  if (ring) {
+    const fraction = remaining / totalSeconds;
+    ring.style.strokeDashoffset = `${CD_RING_CIRCUMFERENCE * (1 - fraction)}`;
+  }
+
+  if (remaining <= 0) {
+    const pill = countdownPill || findNewPostsPill();
+    resetCountdown();
+    if (pill) clickPillWithReveal(pill);
+  }
+}
+
+function resetCountdown() {
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  countdownPill = null;
+
+  const el = document.getElementById('tf-refresh-countdown');
+  if (el && el.style.display !== 'none') {
+    el.classList.add('tf-hiding');
+    el.addEventListener('animationend', () => {
+      el.style.display = 'none';
+      el.classList.remove('tf-hiding');
+    }, { once: true });
+  }
 }
 
 async function clickPillWithReveal(pill) {
@@ -262,14 +395,40 @@ async function clickPillWithReveal(pill) {
   revealScrollRaf = true; // sentinel: block re-entry
   window.scrollTo({ top: addedHeight, behavior: 'instant' });
 
-  // Small pause so the instant-jump settles before we start smooth scroll
-  await sleep(50);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(2000);
+  startRevealScroll();
+}
 
-  // Estimate reveal duration (native smooth scroll ~1px/ms is typical).
-  // Clear the sentinel once the animation should be complete.
-  const estimatedMs = Math.max(600, Math.min(addedHeight, 3000));
-  setTimeout(() => { revealScrollRaf = null; }, estimatedMs);
+async function restoreScrollAndReveal(targetHref) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const link = document.querySelector(`a[href="${targetHref}"] time`);
+    if (link) {
+      const article = link.closest('article[data-testid="tweet"]');
+      if (article) {
+        article.scrollIntoView({ behavior: 'instant', block: 'start' });
+        await sleep(2000);
+        startRevealScroll();
+        return;
+      }
+    }
+    await sleep(500);
+  }
+  revealScrollRaf = null;
+}
+
+function startRevealScroll() {
+  if (window.scrollY <= 0) { revealScrollRaf = null; return; }
+  const slider = document.getElementById('tf-scroll-speed');
+  const speed = slider ? parseInt(slider.value, 10) : 3;
+  const pxPerFrame = -(speed * 0.5);
+  function tick() {
+    if (window.scrollY <= 0) { revealScrollRaf = null; return; }
+    window.scrollBy(0, pxPerFrame);
+    lastScrollTime = Date.now();
+    revealScrollRaf = requestAnimationFrame(tick);
+  }
+  revealScrollRaf = requestAnimationFrame(tick);
 }
 
 function findNewPostsPill() {
@@ -289,19 +448,26 @@ function findNewPostsPill() {
 // ── Scroll tracking ───────────────────────────────────────────────────────────
 
 function setupScrollTracking() {
-  document.addEventListener('scroll', () => { lastScrollTime = Date.now(); }, { passive: true });
+  document.addEventListener('scroll', () => {
+    lastScrollTime = Date.now();
+    resetCountdown();
+    countdownSuppressed = false;
+  }, { passive: true });
 
   // When the user returns to this tab/window, immediately check for new posts.
   // Reset the idle timer first so the pill check isn't blocked by the 15 s guard.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      lastScrollTime = 0;
+      // Only reset the idle timer at the top of the feed — if the user is
+      // scrolled down reading, preserve lastScrollTime so the idle guard still
+      // protects them from an immediate refresh on tab re-focus.
+      if (window.scrollY <= 200) lastScrollTime = 0;
       clickNewPostsPillIfIdle();
     }
   });
 
   window.addEventListener('focus', () => {
-    lastScrollTime = 0;
+    if (window.scrollY <= 200) lastScrollTime = 0;
     clickNewPostsPillIfIdle();
   });
 }
@@ -412,7 +578,9 @@ function highlightOPReplies() {
         const badge = document.createElement('span');
         badge.className = 'tf-op-badge';
         badge.textContent = 'OP';
-        handleEl.appendChild(badge);
+        // Insert after the handle span so handleEl.textContent stays "@handle" and we don't
+        // break the next run (which would see "usernameop" and remove the badge).
+        handleEl.after(badge);
       }
     } else {
       article.classList.remove('tf-op-tweet');
@@ -637,6 +805,23 @@ function startAutoScroll(speed, dir) {
 
 function stopAutoScroll() {
   if (autoScrollRaf !== null) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null; }
+}
+
+// ── Home button ───────────────────────────────────────────────────────────────
+
+function injectHomeButton() {
+  const existing = document.getElementById('tf-home-btn');
+  if (isHomeFeed()) {
+    if (existing) existing.style.display = 'none';
+    return;
+  }
+  if (existing) { existing.style.display = ''; return; }
+
+  const btn = document.createElement('button');
+  btn.id = 'tf-home-btn';
+  btn.textContent = '\u2190 Home';
+  btn.addEventListener('click', () => { location.href = '/home'; });
+  document.body.appendChild(btn);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

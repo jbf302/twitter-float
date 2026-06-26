@@ -203,6 +203,29 @@ html.tf-compact-media .tf-quoted-tweet:not(.tf-media-expanded)::after {
   text-transform: lowercase;
 }
 
+/* ── Home button ──────────────────────────────────────────────────────────── */
+#tf-home-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  background: rgba(0,0,0,.82);
+  border: 1px solid #2f3336;
+  border-radius: 9999px;
+  padding: 4px 14px;
+  color: #e7e9ea;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 99999;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s;
+}
+#tf-home-btn:hover {
+  border-color: #1d9bf0;
+  color: #1d9bf0;
+}
+
 /* ── Article View (Unroll Mode) ───────────────────────────────────────────── */
 #tf-unroll-btn {
   position: fixed;
@@ -256,4 +279,76 @@ html.tf-article-view [data-testid="tweetText"] {
   border-radius: 4px;
   margin-left: 6px;
   vertical-align: text-top;
+}
+
+/* ── Auto-refresh countdown ──────────────────────────────────────────────── */
+#tf-refresh-countdown {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,.82);
+  border: 1px solid #2f3336;
+  border-radius: 9999px;
+  padding: 5px 8px 5px 10px;
+  z-index: 99999;
+  backdrop-filter: blur(10px);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  color: #e7e9ea;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+  animation: tf-countdown-in .25s ease forwards;
+}
+@keyframes tf-countdown-in {
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+#tf-refresh-countdown.tf-hiding {
+  animation: tf-countdown-out .2s ease forwards;
+}
+@keyframes tf-countdown-out {
+  to { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+}
+#tf-refresh-countdown svg {
+  flex-shrink: 0;
+}
+#tf-refresh-countdown .tf-cd-ring {
+  fill: none;
+  stroke: #1d9bf0;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear;
+}
+#tf-refresh-countdown .tf-cd-track {
+  fill: none;
+  stroke: #2f3336;
+  stroke-width: 2.5;
+}
+#tf-refresh-countdown .tf-cd-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e7e9ea;
+}
+#tf-refresh-countdown .tf-cd-close {
+  background: none;
+  border: none;
+  color: #71767b;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 9999px;
+  transition: color .15s, background .15s;
+}
+#tf-refresh-countdown .tf-cd-close:hover {
+  color: #e7e9ea;
+  background: rgba(255,255,255,.1);
+}
+#tf-refresh-countdown:hover {
+  border-color: #1d9bf0;
 }
